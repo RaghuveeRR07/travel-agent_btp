@@ -3,6 +3,8 @@ from datetime import datetime
 
 from models.trip import Itinerary, TripRequest
 from services.llm_client import get_client
+from services.persistence import create_storage
+from services.profile_service import audit
 
 _SYSTEM = """You are an expert travel planner. Generate a detailed day-by-day itinerary in JSON.
 
@@ -86,4 +88,22 @@ def generate_itinerary_node(state: dict) -> dict:
         itinerary = Itinerary.model_validate(data)
 
     itinerary = itinerary.model_copy(update={"generated_at": datetime.now().strftime("%Y-%m-%d")})
-    return {"itinerary": itinerary.model_dump(), "phase": "itinerary"}
+    storage = create_storage()
+    trip_id = state.get("trip_id")
+    trip_data = {
+        "profile_id": state.get("profile_id"),
+        "trip_request": trip.model_dump(),
+        "itinerary": itinerary.model_dump(),
+        "status": "planned",
+    }
+    if trip_id:
+        trip_data["trip_id"] = trip_id
+    trip_id = storage.save_trip(trip_data)
+    audit(
+        storage,
+        "trip.itinerary_generated",
+        trip_id=trip_id,
+        correlation_id=state.get("correlation_id"),
+        data={"destination": trip.destination, "total_days": itinerary.total_days},
+    )
+    return {"itinerary": itinerary.model_dump(), "phase": "itinerary", "trip_id": trip_id}

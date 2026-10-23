@@ -11,3 +11,5 @@ cryptography>=48.0.0
 rich>=15.0.0
 pytest>=8.0.0
 pytest-mock>=3.14.0
+pymongo>=4.10.1
+python-dotenv>=1.0.1

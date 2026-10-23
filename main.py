@@ -1,7 +1,8 @@
 import argparse
+import os
 import uuid
-from getpass import getpass
 
+from dotenv import load_dotenv
 from langgraph.types import Command
 from rich.console import Console
 
@@ -10,6 +11,7 @@ from agents.state import INITIAL_STATE
 from config.settings import APP_NAME, APP_VERSION, DEFAULT_PROVIDER
 from services.credential_manager import CredentialManager
 from services.llm_client import initialize_client
+from services.profile_service import profile_id
 from ui.console import print_welcome
 
 console = Console()
@@ -41,37 +43,24 @@ def parse_args() -> argparse.Namespace:
 
 
 def bootstrap_credentials(provider: str) -> CredentialManager:
-    """Unlock or set up the credential store for the given provider."""
+    """Load backend-managed credentials without prompting in the CLI."""
+    load_dotenv()
     cm = CredentialManager(provider=provider)
-    label = PROVIDER_LABEL[provider]
-
-    if not cm.is_configured():
-        console.print(
-            f"\n[bold yellow]First run ({label}) — setting up encrypted credential storage.[/bold yellow]"
+    missing = cm.load_from_environment()
+    if missing:
+        names = "\n".join(f"  - {name}" for name in missing)
+        raise SystemExit(
+            "Backend credentials are missing. Configure these environment variables "
+            "in .env, your process environment, or your deployment secret manager:\n"
+            f"{names}"
         )
-        console.print("[dim]Your API keys will be encrypted with your master password.[/dim]\n")
-        while True:
-            password = getpass("  Set master password: ")
-            confirm = getpass("  Confirm password   : ")
-            if password != confirm:
-                console.print("[red]  Passwords do not match. Try again.[/red]\n")
-                continue
-            if len(password) < 6:
-                console.print("[red]  Password must be at least 6 characters.[/red]\n")
-                continue
-            break
-        console.print(f"\n[dim]Enter your API keys for {label}:[/dim]")
-        cm.setup(master_password=password)
-        console.print("[green]  Credentials saved and encrypted.[/green]\n")
-    else:
-        password = getpass("  Master password: ")
-        try:
-            cm.unlock(master_password=password)
-        except ValueError as e:
-            console.print(f"[red]  {e}[/red]")
-            raise SystemExit(1)
-
     return cm
+
+
+def configure_storage(cm: CredentialManager) -> None:
+    """Validate the backend-provided MongoDB configuration."""
+    if not cm.has_credential("MONGODB_URI"):
+        raise SystemExit("MONGODB_URI must be configured by the backend environment.")
 
 
 def run() -> None:
@@ -82,6 +71,7 @@ def run() -> None:
     console.print(f"[dim]Provider: {PROVIDER_LABEL[provider]}[/dim]\n")
 
     cm = bootstrap_credentials(provider)
+    configure_storage(cm)
 
     # Initialize the LLM singleton before the graph runs
     api_key = cm.get_credential(PROVIDER_KEY_NAME[provider])
@@ -97,6 +87,8 @@ def run() -> None:
     # Seed initial state with provider so nodes can access it if needed
     state = dict(INITIAL_STATE)
     state["provider"] = provider
+    state["profile_id"] = profile_id()
+    state["correlation_id"] = thread_id
 
     result = graph.invoke(state, config)
 

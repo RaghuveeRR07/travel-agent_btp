@@ -24,6 +24,9 @@ class TravelAgentState(TypedDict):
     phase: str    # "gathering_core" | "gathering_preferences" | "itinerary" | "booking" | "done"
     error_message: Optional[str]
     provider: str  # "gemini" | "anthropic"
+    profile_id: str
+    trip_id: Optional[str]
+    correlation_id: str
 
 
 INITIAL_STATE: TravelAgentState = {
@@ -39,4 +42,7 @@ INITIAL_STATE: TravelAgentState = {
     "phase": "gathering_core",
     "error_message": None,
     "provider": "gemini",
+    "profile_id": "",
+    "trip_id": None,
+    "correlation_id": "",
 }

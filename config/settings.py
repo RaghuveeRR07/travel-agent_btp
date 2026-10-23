@@ -22,3 +22,8 @@ MAX_PREFERENCE_TURNS = 15
 
 APP_NAME = "AI Travel Agent"
 APP_VERSION = "1.0.0"
+
+MONGODB_URI = ""
+MONGODB_DATABASE = "travel_agent"
+AUDIT_RETENTION_DAYS = 365
+TRAVEL_DATA_MODE = "production"  # "production" or explicit "mock" for tests

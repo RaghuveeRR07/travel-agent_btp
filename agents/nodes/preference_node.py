@@ -2,6 +2,8 @@ from langgraph.types import interrupt
 
 from models.trip import FlightPreferences, HotelPreferences, TripRequest
 from services.llm_client import get_client
+from services.persistence import create_storage
+from services.profile_service import audit, profile_id, save_profile
 
 _CORE_SYSTEM = """You are an expert travel planning assistant. Your job is to gather all the
 details needed to plan the perfect trip.
@@ -113,6 +115,7 @@ def gather_preferences_node(state: dict) -> dict:
     phase = state.get("phase", "gathering_core")
     messages = list(state.get("messages", []))
     client = get_client()
+    current_profile_id = state.get("profile_id") or profile_id()
 
     if phase == "gathering_core":
         if not messages:
@@ -129,6 +132,7 @@ def gather_preferences_node(state: dict) -> dict:
                 "messages": messages,
                 "trip_request": trip.model_dump(),
                 "phase": "gathering_preferences",
+                "profile_id": current_profile_id,
             }
 
         messages.append({"role": "assistant", "content": resp.text})
@@ -163,12 +167,31 @@ def gather_preferences_node(state: dict) -> dict:
                 "hotel_preferences": HotelPreferences(**hotel_data),
                 "flight_preferences": FlightPreferences(**flight_data),
             })
+            storage = create_storage()
+            save_profile(
+                {
+                    "display_name": "Local traveler",
+                    "preferences": {
+                        "hotel_preferences": trip.hotel_preferences.model_dump(),
+                        "flight_preferences": trip.flight_preferences.model_dump(),
+                        "preferred_currency": trip.preferred_currency,
+                    },
+                },
+                storage=storage,
+            )
+            audit(
+                storage,
+                "profile.preferences_updated",
+                correlation_id=state.get("correlation_id"),
+                data=trip.model_dump(),
+            )
             if resp.text:
                 messages.append({"role": "assistant", "content": resp.text})
             return {
                 "messages": messages,
                 "trip_request": trip.model_dump(),
                 "phase": "itinerary",
+                "profile_id": current_profile_id,
             }
 
         messages.append({"role": "assistant", "content": resp.text})

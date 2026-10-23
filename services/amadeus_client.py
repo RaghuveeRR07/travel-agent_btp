@@ -1,6 +1,7 @@
 import random
 import time
 import uuid
+import os
 from typing import Optional
 
 from models.booking import FlightOption, HotelOption
@@ -22,6 +23,7 @@ class TravelSearchClient:
     def __init__(self, api_key: str = "", api_secret: str = "",
                  hostname: str = "test"):
         self._live = False
+        self._allow_mock = os.getenv("TRAVEL_DATA_MODE", "production").lower() == "mock"
         if api_key and api_secret:
             try:
                 import amadeus
@@ -41,9 +43,12 @@ class TravelSearchClient:
         if self._live:
             try:
                 return self._search_flights_live(origin, destination, date, adults, max_results)
-            except Exception:
-                pass
-        return self._mock_flights(origin, destination, date, max_results)
+            except Exception as exc:
+                if not self._allow_mock:
+                    raise RuntimeError(f"Amadeus flight search failed: {exc}") from exc
+        if self._allow_mock:
+            return self._mock_flights(origin, destination, date, max_results)
+        raise RuntimeError("Amadeus credentials are not configured and mock data is disabled.")
 
     def _search_flights_live(self, origin: str, destination: str, date: str,
                               adults: int, max_results: int) -> list[FlightOption]:
@@ -119,9 +124,12 @@ class TravelSearchClient:
         if self._live:
             try:
                 return self._search_hotels_live(city_code, check_in, check_out, adults, max_results)
-            except Exception:
-                pass
-        return self._mock_hotels(city_code, check_in, check_out, max_results)
+            except Exception as exc:
+                if not self._allow_mock:
+                    raise RuntimeError(f"Amadeus hotel search failed: {exc}") from exc
+        if self._allow_mock:
+            return self._mock_hotels(city_code, check_in, check_out, max_results)
+        raise RuntimeError("Amadeus credentials are not configured and mock data is disabled.")
 
     def _search_hotels_live(self, city_code: str, check_in: str, check_out: str,
                              adults: int, max_results: int) -> list[HotelOption]:
@@ -132,7 +140,9 @@ class TravelSearchClient:
         )
         hotel_ids = [h["hotelId"] for h in hotels_resp.data[:20]]
         if not hotel_ids:
-            return self._mock_hotels(city_code, check_in, check_out, max_results)
+            if self._allow_mock:
+                return self._mock_hotels(city_code, check_in, check_out, max_results)
+            raise RuntimeError("Amadeus returned no hotels for the requested city.")
 
         # Step 2: get offers for those hotels
         time.sleep(0.5)
